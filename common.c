@@ -81,6 +81,12 @@ inline int isCHH(char *seq, int pos, int seqlen) {
     return 0;
 }
 
+inline int isUnknownC(char *seq, int pos, int seqlen) {
+    if(pos >= seqlen) return 0;
+    if(*(seq+pos) == 'C' || *(seq+pos) == 'c' & *(seq+pos+1) == 'N') return 1;
+    return 0;
+}
+
 int getStrand(bam1_t *b) {
     char *XG = (char *) bam_aux_get(b, "XG");
     //Only bismark uses the XG tag like this. Some other aligners use it for other purposes...

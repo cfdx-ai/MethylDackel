@@ -13,28 +13,30 @@
 
 void print_version(void);
 
-void addRead(kstring_t *os, bam1_t *b, bam_hdr_t *hdr, uint32_t nmethyl, uint32_t nunmethyl) {
+void addRead(kstring_t *os, bam1_t *b, bam_hdr_t *hdr, uint32_t nmethyl, uint32_t nunmethyl, char *meth_call) {
     char str[10000]; // I don't really like hardcoding it, but given the probability that it ever won't suffice...
 
     if(nmethyl + nunmethyl > 0) {
-        snprintf(str, 10000, "%s\t%s\t%"PRId64"\t%f\t%"PRIu32"\n",
+        snprintf(str, 10000, "%s\t%s\t%"PRId64"\t%f\t%"PRIu32"\tXM:Z:%s\n",
             bam_get_qname(b),
             hdr->target_name[b->core.tid],
             b->core.pos,
             100. * ((double) nmethyl)/(nmethyl+nunmethyl),
-            nmethyl + nunmethyl);
+            nmethyl + nunmethyl, 
+            meth_call);
     } else {
-        snprintf(str, 10000, "%s\t%s\t%"PRId64"\t0.0\t%"PRIu32"\n",
+        snprintf(str, 10000, "%s\t%s\t%"PRId64"\t0.0\t%"PRIu32"\tXM:Z:%s\n",
             bam_get_qname(b),
             hdr->target_name[b->core.tid],
             b->core.pos,
-            nmethyl + nunmethyl);
+            nmethyl + nunmethyl,
+            meth_call);
     }
 
     kputs(str, os);
 }
 
-void processRead(Config *config, bam1_t *b, char *seq, uint32_t sequenceStart, int seqLen, uint32_t *nmethyl, uint32_t *nunmethyl) {
+void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t sequenceStart, int seqLen, uint32_t *nmethyl, uint32_t *nunmethyl) {
     uint32_t readPosition = 0;
     uint32_t mappedPosition = b->core.pos;
     int cigarOPNumber = 0;
@@ -44,7 +46,10 @@ void processRead(Config *config, bam1_t *b, char *seq, uint32_t sequenceStart, i
     uint8_t *readQual = bam_get_qual(b);
     int strand = getStrand(b);
     int cigarOPType;
-    int direction;
+    int cpg_direction;
+    int chg_direction;
+    int chh_direction;
+    int unknown_direction;
     int base;
 
     while(readPosition < b->core.l_qseq && cigarOPNumber < b->core.n_cigar) {
@@ -62,15 +67,94 @@ void processRead(Config *config, bam1_t *b, char *seq, uint32_t sequenceStart, i
                     cigarOPOffset++;
                 }
 
-                direction = isCpG(seq, mappedPosition - sequenceStart, seqLen);
-                if(direction) {
+                cpg_direction = isCpG(seq, mappedPosition - sequenceStart, seqLen);
+                chg_direction = isCHG(seq, mappedPosition - sequenceStart, seqLen);
+                chh_direction = isCHH(seq, mappedPosition - sequenceStart, seqLen);
+                unknown_direction = isUnknownC(seq, mappedPosition - sequenceStart, seqLen);
+
+                if(cpg_direction) {
                     base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
-                    if(direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
-                        if(base == 2) (*nmethyl)++;  //C
-                        else if(base == 8) (*nunmethyl)++; //T
-                    } else if(direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
-                        if(base == 4) (*nmethyl)++;  //G
-                        else if(base == 1) (*nunmethyl)++; //A
+                    if(cpg_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
+                        if(base == 2) { 
+                            (*nmethyl)++; //C
+                            meth_call[readPosition] = 'Z';
+                        }
+                        else if(base == 8){ 
+                            (*nunmethyl)++; //T
+                            meth_call[readPosition] = 'z';
+                        }
+                    } else if(cpg_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
+                        if(base == 4) {
+                            (*nmethyl)++;  //G
+                            meth_call[readPosition] = 'Z';
+                        }
+                        else if(base == 1){
+                            (*nunmethyl)++; //A
+                            meth_call[readPosition] = 'z';
+                        }
+                    }
+                } else if(chg_direction) {
+                    base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
+                    if(chg_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
+                        if(base == 2) { 
+                            (*nmethyl)++; //C
+                            meth_call[readPosition] = 'X';
+                        }
+                        else if(base == 8){ 
+                            (*nunmethyl)++; //T
+                            meth_call[readPosition] = 'x';
+                        }
+                    } else if(chg_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
+                        if(base == 4) {
+                            (*nmethyl)++;  //G
+                            meth_call[readPosition] = 'X';
+                        }
+                        else if(base == 1){
+                            (*nunmethyl)++; //A
+                            meth_call[readPosition] = 'x';
+                        }
+                    }
+                }else if(chh_direction) {
+                    base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
+                    if(chh_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
+                        if(base == 2) { 
+                            (*nmethyl)++; //C
+                            meth_call[readPosition] = 'H';
+                        }
+                        else if(base == 8){ 
+                            (*nunmethyl)++; //T
+                            meth_call[readPosition] = 'h';
+                        }
+                    } else if(chh_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
+                        if(base == 4) {
+                            (*nmethyl)++;  //G
+                            meth_call[readPosition] = 'H';
+                        }
+                        else if(base == 1){
+                            (*nunmethyl)++; //A
+                            meth_call[readPosition] = 'h';
+                        }
+                    }
+                }else if(unknown_direction){
+                    base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
+                    if(unknown_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
+                        if(base == 2) { 
+                            (*nmethyl)++; //C
+                            meth_call[readPosition] = 'U';
+                        }
+                        else if(base == 8){ 
+                            (*nunmethyl)++; //T
+                            meth_call[readPosition] = 'u';
+                        }
+                    } else if(unknown_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
+                        if(base == 4) {
+                            (*nmethyl)++;  //G
+                            meth_call[readPosition] = 'U';
+                        }
+                        else if(base == 1){
+                            (*nunmethyl)++; //A
+                            meth_call[readPosition] = 'u';
+                        }
                     }
                 }
                 mappedPosition++;
@@ -191,8 +275,17 @@ void *perReadMetrics(void *foo) {
             if(config->requireFlags && (config->requireFlags & b->core.flag) != config->requireFlags) continue;
             if(config->ignoreFlags && (config->ignoreFlags & b->core.flag) != 0) continue;
             if(b->core.qual < config->minMapq) continue;
-            processRead(config, b, seq, localPos2, seqlen, &nmethyl, &nunmethyl);
-            addRead(os, b, hdr, nmethyl, nunmethyl);
+
+            char *meth_call = calloc(b->core.l_qseq+1, sizeof(char));
+            if (!meth_call) {
+                fprintf(stderr, "Couldn't allocate space for meth_call array!\n");
+                return NULL;
+            }
+            memset(meth_call, '.', b->core.l_qseq+1);
+            meth_call[b->core.l_qseq] = '\0';
+            processRead(config, b, seq, meth_call, localPos2, seqlen, &nmethyl, &nunmethyl);
+            addRead(os, b, hdr, nmethyl, nunmethyl, meth_call);
+            free(meth_call);
         }
         sam_itr_destroy(iter);
         free(seq);
