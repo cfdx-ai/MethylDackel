@@ -97,20 +97,20 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
                     base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
                     if(chg_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
                         if(base == 2) { 
-                            (*nmethyl)++; //C
+                            // (*nmethyl)++; //C
                             meth_call[readPosition] = 'X';
                         }
                         else if(base == 8){ 
-                            (*nunmethyl)++; //T
+                            // (*nunmethyl)++; //T
                             meth_call[readPosition] = 'x';
                         }
                     } else if(chg_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
                         if(base == 4) {
-                            (*nmethyl)++;  //G
+                            // (*nmethyl)++;  //G
                             meth_call[readPosition] = 'X';
                         }
                         else if(base == 1){
-                            (*nunmethyl)++; //A
+                            // (*nunmethyl)++; //A
                             meth_call[readPosition] = 'x';
                         }
                     }
@@ -118,20 +118,20 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
                     base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
                     if(chh_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
                         if(base == 2) { 
-                            (*nmethyl)++; //C
+                            // (*nmethyl)++; //C
                             meth_call[readPosition] = 'H';
                         }
                         else if(base == 8){ 
-                            (*nunmethyl)++; //T
+                            // (*nunmethyl)++; //T
                             meth_call[readPosition] = 'h';
                         }
                     } else if(chh_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
                         if(base == 4) {
-                            (*nmethyl)++;  //G
+                            // (*nmethyl)++;  //G
                             meth_call[readPosition] = 'H';
                         }
                         else if(base == 1){
-                            (*nunmethyl)++; //A
+                            // (*nunmethyl)++; //A
                             meth_call[readPosition] = 'h';
                         }
                     }
@@ -139,20 +139,20 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
                     base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
                     if(unknown_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
                         if(base == 2) { 
-                            (*nmethyl)++; //C
+                            // (*nmethyl)++; //C
                             meth_call[readPosition] = 'U';
                         }
                         else if(base == 8){ 
-                            (*nunmethyl)++; //T
+                            // (*nunmethyl)++; //T
                             meth_call[readPosition] = 'u';
                         }
                     } else if(unknown_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
                         if(base == 4) {
-                            (*nmethyl)++;  //G
+                            // (*nmethyl)++;  //G
                             meth_call[readPosition] = 'U';
                         }
                         else if(base == 1){
-                            (*nunmethyl)++; //A
+                            // (*nunmethyl)++; //A
                             meth_call[readPosition] = 'u';
                         }
                     }
