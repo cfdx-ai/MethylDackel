@@ -46,6 +46,8 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
     uint8_t *readQual = bam_get_qual(b);
     int strand = getStrand(b);
     int cigarOPType;
+    int nextCigarOPType = 0;
+    int nextnextCigarOPType = 0;
     int cpg_direction;
     int chg_direction;
     int chh_direction;
@@ -53,11 +55,43 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
     int base;
 
     while(readPosition < b->core.l_qseq && cigarOPNumber < b->core.n_cigar) {
+        // Parsing CIGAR string, 
+        // Example: 50M2I70M then offsets are 50, 2 and 70
         if(cigarOPOffset >= bam_cigar_oplen(CIGAR[cigarOPNumber])) {
             cigarOPOffset = 0;
             cigarOPNumber++;
         }
         cigarOPType = bam_cigar_type(CIGAR[cigarOPNumber]);
+        nextCigarOPType = cigarOPType;
+        nextnextCigarOPType = cigarOPType;
+        // At the end of the current CIGAR type, check the next CIGAR type
+        if(cigarOPOffset + 1 >= bam_cigar_oplen(CIGAR[cigarOPNumber])) {
+            if (cigarOPNumber+1 < b->core.n_cigar){
+                nextCigarOPType = bam_cigar_type(CIGAR[cigarOPNumber+1]);
+            }else{
+                nextCigarOPType = 0;
+            }
+        }
+        // At the end of the current CIGAR type, need to check the next cigar type 
+        // and 
+        if (nextCigarOPType == 0){
+            nextnextCigarOPType = 0;
+        }else if(cigarOPOffset + 2 >= bam_cigar_oplen(CIGAR[cigarOPNumber])) {
+            // If the next CIGAR string has only 1 base then we have to check the next next CIGAR string
+            if (bam_cigar_oplen(CIGAR[cigarOPNumber+1]) == 1){
+                if (cigarOPNumber+2 < b->core.n_cigar){
+                    nextnextCigarOPType = bam_cigar_type(CIGAR[cigarOPNumber+2]);
+                }else{
+                    nextnextCigarOPType = 0;
+                }
+            }else{
+                if (cigarOPNumber+1 < b->core.n_cigar){
+                    nextnextCigarOPType = bam_cigar_type(CIGAR[cigarOPNumber+1]);
+                }else{
+                    nextnextCigarOPType = 0;
+                }
+            }
+        }
         if(cigarOPType & 2) { //not ISHPB
             if(cigarOPType & 1) { //M=X
                 // Skip poor base calls
@@ -71,71 +105,13 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
                 chg_direction = isCHG(seq, mappedPosition - sequenceStart, seqLen);
                 chh_direction = isCHH(seq, mappedPosition - sequenceStart, seqLen);
                 unknown_direction = isUnknownC(seq, mappedPosition - sequenceStart, seqLen);
-
-                if(cpg_direction) {
-                    base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
-                    if(cpg_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
-                        if(base == 2) { 
-                            (*nmethyl)++; //C
-                            meth_call[readPosition] = 'Z';
-                        }
-                        else if(base == 8){ 
-                            (*nunmethyl)++; //T
-                            meth_call[readPosition] = 'z';
-                        }
-                    } else if(cpg_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
-                        if(base == 4) {
-                            (*nmethyl)++;  //G
-                            meth_call[readPosition] = 'Z';
-                        }
-                        else if(base == 1){
-                            (*nunmethyl)++; //A
-                            meth_call[readPosition] = 'z';
-                        }
-                    }
-                } else if(chg_direction) {
-                    base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
-                    if(chg_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
-                        if(base == 2) { 
-                            // (*nmethyl)++; //C
-                            meth_call[readPosition] = 'X';
-                        }
-                        else if(base == 8){ 
-                            // (*nunmethyl)++; //T
-                            meth_call[readPosition] = 'x';
-                        }
-                    } else if(chg_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
-                        if(base == 4) {
-                            // (*nmethyl)++;  //G
-                            meth_call[readPosition] = 'X';
-                        }
-                        else if(base == 1){
-                            // (*nunmethyl)++; //A
-                            meth_call[readPosition] = 'x';
-                        }
-                    }
-                }else if(chh_direction) {
-                    base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
-                    if(chh_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
-                        if(base == 2) { 
-                            // (*nmethyl)++; //C
-                            meth_call[readPosition] = 'H';
-                        }
-                        else if(base == 8){ 
-                            // (*nunmethyl)++; //T
-                            meth_call[readPosition] = 'h';
-                        }
-                    } else if(chh_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
-                        if(base == 4) {
-                            // (*nmethyl)++;  //G
-                            meth_call[readPosition] = 'H';
-                        }
-                        else if(base == 1){
-                            // (*nunmethyl)++; //A
-                            meth_call[readPosition] = 'h';
-                        }
-                    }
-                }else if(unknown_direction){
+                // ORDER OF OPERATION MATTERS HERE!
+                // First check any unknown methylation
+                // Then check CpG
+                // Then check CHG
+                // Finally check CHH
+                // FOR EACH methylation call we will check the next or the next next CIGAR to make sure it was not an insertion
+                if(unknown_direction){
                     base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
                     if(unknown_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
                         if(base == 2) { 
@@ -156,16 +132,114 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
                             meth_call[readPosition] = 'u';
                         }
                     }
+                } else if(cpg_direction) {
+                    base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
+                    if(cpg_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
+                        if(base == 2) { 
+                            (*nmethyl)++; //C
+                            meth_call[readPosition] = 'Z';
+                            if (nextCigarOPType == 1){
+                                meth_call[readPosition] = 'U';
+                            }
+                        }
+                        else if(base == 8){ 
+                            (*nunmethyl)++; //T
+                            meth_call[readPosition] = 'z';
+                            if (nextCigarOPType == 1){
+                                meth_call[readPosition] = 'u';
+                            }
+                        }
+                    } else if(cpg_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
+                        if(base == 4) {
+                            (*nmethyl)++;  //G
+                            meth_call[readPosition] = 'Z';
+                            if (nextCigarOPType == 1){
+                                meth_call[readPosition] = 'U';
+                            }
+
+                        }
+                        else if(base == 1){
+                            (*nunmethyl)++; //A
+                            meth_call[readPosition] = 'z';
+                            if (nextCigarOPType == 1){
+                                meth_call[readPosition] = 'u';
+                            }
+                        }
+                    }
+                } else if(chg_direction) {
+                    base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
+                    if(chg_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
+                        if (base == 2) { 
+                            // (*nmethyl)++; //C
+                            meth_call[readPosition] = 'X';
+                            if (nextnextCigarOPType == 1){
+                                meth_call[readPosition] = 'U';
+                            }
+                        } else if(base == 8){ 
+                            // (*nunmethyl)++; //T
+                            meth_call[readPosition] = 'x';
+                            if (nextnextCigarOPType == 1){
+                                meth_call[readPosition] = 'u';
+                            }
+                        }
+                    } else if(chg_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
+                        if(base == 4) {
+                            // (*nmethyl)++;  //G
+                            meth_call[readPosition] = 'X';
+                            if (nextnextCigarOPType == 1){
+                                meth_call[readPosition] = 'U';
+                            }
+                        }else if(base == 1){
+                            // (*nunmethyl)++; //A
+                            meth_call[readPosition] = 'x';
+                            if (nextnextCigarOPType == 1){
+                                meth_call[readPosition] = 'u';
+                            }
+                        }
+                    }
+                }else if(chh_direction) {
+                    base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
+                    if(chh_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
+                        if(base == 2) { 
+                            // (*nmethyl)++; //C
+                            meth_call[readPosition] = 'H';
+                            if (nextCigarOPType == 1 || nextnextCigarOPType == 1){
+                                meth_call[readPosition] = 'U';
+                            }
+                        }
+                        else if(base == 8){ 
+                            // (*nunmethyl)++; //T
+                            meth_call[readPosition] = 'h';
+                            if (nextCigarOPType == 1 || nextnextCigarOPType == 1){
+                                meth_call[readPosition] = 'u';
+                            }
+                        }
+                    } else if(chh_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
+                        if(base == 4) {
+                            // (*nmethyl)++;  //G
+                            meth_call[readPosition] = 'H';
+                            if (nextCigarOPType == 1 || nextnextCigarOPType == 1){
+                                meth_call[readPosition] = 'U';
+                            }
+                        }
+                        else if(base == 1){
+                            // (*nunmethyl)++; //A
+                            meth_call[readPosition] = 'h';
+                            if (nextCigarOPType == 1 || nextnextCigarOPType == 1){
+                                meth_call[readPosition] = 'u';
+                            }
+                        }
+                    }
                 }
                 mappedPosition++;
                 readPosition++;
                 cigarOPOffset++;
-            } else { //DN
+            } else { //Deletion
                 mappedPosition += bam_cigar_oplen(CIGAR[cigarOPNumber++]);
                 cigarOPOffset = 0;
                 continue;
             }
-        } else if(cigarOPType & 1) { // IS
+        } else if(cigarOPType & 1) { // Insertion
             readPosition += bam_cigar_oplen(CIGAR[cigarOPNumber++]);
             cigarOPOffset = 0;
             continue;
