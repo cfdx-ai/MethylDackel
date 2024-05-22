@@ -77,21 +77,24 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
     int chh_direction;
     int unknown_direction;
     int base;
-    int32_t ref_seq_size = b->core.l_qseq+3;
+    // Reference sequence with at least 2bp padding 
+    // <2pb><Reference Sequence><2bp><\o>
+    int32_t ref_seq_size = b->core.l_qseq+5;
     char *ref_seq = calloc(ref_seq_size, sizeof(char));
     memset(ref_seq, 'N', ref_seq_size);
     ref_seq[ref_seq_size-1] = '\0';
     // Construct a reference sequence from CIGAR string
-    construct_reference_sequence_from_cigar(b, (seq + mappedPosition - sequenceStart), ref_seq, bam_get_cigar(b));
+    construct_reference_sequence_from_cigar(b, (seq + mappedPosition - sequenceStart - 2), ref_seq, bam_get_cigar(b));
 
     while(readPosition < b->core.l_qseq) {
         if(readQual[readPosition] < config->minPhred) {
             readPosition++;
             continue;
         }
-        cpg_direction = isCpG(ref_seq, readPosition, ref_seq_size);
-        chg_direction = isCHG(ref_seq, readPosition, ref_seq_size);
-        chh_direction = isCHH(ref_seq, readPosition, ref_seq_size);
+
+        cpg_direction = isCpG(ref_seq, readPosition+2, ref_seq_size);
+        chg_direction = isCHG(ref_seq, readPosition+2, ref_seq_size);
+        chh_direction = isCHH(ref_seq, readPosition+2, ref_seq_size);
         unknown_direction = isUnknownC(ref_seq, readPosition, ref_seq_size);
 
         base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
