@@ -37,7 +37,7 @@ void addRead(kstring_t *os, bam1_t *b, bam_hdr_t *hdr, uint32_t nmethyl, uint32_
 }
 
 
-void construct_reference_sequence_from_cigar(bam1_t *b, char *seq_start, char *ref_seq, uint32_t *CIGAR){
+void construct_reference_sequence_from_cigar(bam1_t *b, char *seq_start, char *ref_seq, uint32_t *CIGAR, int padding){
     // Construct a reference sequence from CIGAR string
     int cigarOpLen = 0;
     int cigarOPNumber = 0;
@@ -61,9 +61,13 @@ void construct_reference_sequence_from_cigar(bam1_t *b, char *seq_start, char *r
         }
         cigarOPNumber++;
     }
-    // Copy 2 more basepair from reference in case we have C at the last position
-    temp_ref_seq[0] = seq_start[0];
-    temp_ref_seq[1] = seq_start[1];
+    // Copy 4 more basepair from reference because we need at least 2bp padding on each end
+    // <2pb><Reference Sequence><2bp><\o>
+    for(int i = 0; i < 2*padding; i++) {
+        temp_ref_seq[0] = seq_start[0];
+        temp_ref_seq++;
+        seq_start++;
+    }
 }
 
 void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t sequenceStart, int seqLen, uint32_t *nmethyl, uint32_t *nunmethyl) {
@@ -77,14 +81,17 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
     int chh_direction;
     int unknown_direction;
     int base;
+    int padding = 2;
     // Reference sequence with at least 2bp padding 
     // <2pb><Reference Sequence><2bp><\o>
-    int32_t ref_seq_size = b->core.l_qseq+5;
+    int ref_seq_start_offset = mappedPosition - sequenceStart - padding;
+    int32_t ref_seq_size = b->core.l_qseq + 2*padding + 1;
     char *ref_seq = calloc(ref_seq_size, sizeof(char));
     memset(ref_seq, 'N', ref_seq_size);
     ref_seq[ref_seq_size-1] = '\0';
     // Construct a reference sequence from CIGAR string
-    construct_reference_sequence_from_cigar(b, (seq + mappedPosition - sequenceStart - 2), ref_seq, bam_get_cigar(b));
+    if (ref_seq_start_offset < 0) ref_seq_start_offset = 0;
+    construct_reference_sequence_from_cigar(b, (seq + ref_seq_start_offset), ref_seq, bam_get_cigar(b), padding);
 
     while(readPosition < b->core.l_qseq) {
         if(readQual[readPosition] < config->minPhred) {
@@ -92,11 +99,10 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
             continue;
         }
 
-        cpg_direction = isCpG(ref_seq, readPosition+2, ref_seq_size);
-        chg_direction = isCHG(ref_seq, readPosition+2, ref_seq_size);
-        chh_direction = isCHH(ref_seq, readPosition+2, ref_seq_size);
-        unknown_direction = isUnknownC(ref_seq, readPosition, ref_seq_size);
-
+        cpg_direction = isCpG(ref_seq, readPosition + padding, ref_seq_size);
+        chg_direction = isCHG(ref_seq, readPosition + padding, ref_seq_size);
+        chh_direction = isCHH(ref_seq, readPosition + padding, ref_seq_size);
+        unknown_direction = isUnknownC(ref_seq, readPosition + padding, ref_seq_size);
         base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
         if(unknown_direction){            
             if(unknown_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
