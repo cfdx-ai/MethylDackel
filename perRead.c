@@ -37,19 +37,54 @@ void addRead(kstring_t *os, bam1_t *b, bam_hdr_t *hdr, uint32_t nmethyl, uint32_
 }
 
 
-void construct_reference_sequence_from_cigar(bam1_t *b, char *seq_start, char *ref_seq, uint32_t *CIGAR, int padding){
-    // Construct a reference sequence from CIGAR string
+void construct_reference_sequence_from_cigar(bam1_t *b, char *seq_start, char *ref_seq, int ref_seq_rel_start_offset, int ref_mapping_position, int max_ref_seq_len){
+    /**
+     * Constructs a reference sequence based on the reads CIGAR string.
+     * The reference sequence includes 2bp padding at the start and end of the sequence.
+     * This function assumes that the necessary space has been allocated for ref_seq and
+     * that seq_start points to the appropriate location in the original sequence buffer.
+     *
+     * @param b Pointer to a bam1_t structure containing the alignment and CIGAR string.
+     * @param seq_start Pointer to the start of the reference sequence that correspond to the read.
+     * @param ref_seq Buffer where the constructed reference sequence will be stored.
+     * @param ref_seq_rel_start_offset Offset in the reference sequence relative to the start of ref_seq. 
+     *                          This will be used to check if there are not enough padding to the right.
+     * @param ref_mapping_position Position in the reference where the sequence mapping starts. 
+     *                          This will be used to check if we have enough padding from the beginning, for example
+     *                          if the read starts at the beginning of the reference, we cannot add padding to the left.
+     * @param max_ref_seq_len Maximum length of the reference sequence buffer to ensure we do not overflow. 
+     *                          This will be needed to check if we have enough space to the right.
+     *
+     */
+    uint32_t *CIGAR = bam_get_cigar(b);
     int cigarOpLen = 0;
     int cigarOPNumber = 0;
     int cigarOPType;
     char *temp_ref_seq = ref_seq;
+    // Copy 2bp padding to the start of the reference sequence
+    if (ref_mapping_position == 1){
+        // Can only fit 1 basepair before the offset, skip 1bp for temp_ref_seq
+        temp_ref_seq++;
+        temp_ref_seq[0] = seq_start[0];
+        seq_start++;
+        temp_ref_seq++;
+    } else if (ref_mapping_position > 1){
+        for(int i = 0; i < 2; i++) {        
+            temp_ref_seq[0] = seq_start[0];
+            seq_start++;
+            temp_ref_seq++;
+        }
+    } else{
+        // Cannot add padding to the left, skip 2bp for temp_ref_seq
+        temp_ref_seq += 2;
+    }
+
     while(cigarOPNumber < b->core.n_cigar) {
         cigarOPType = bam_cigar_type(CIGAR[cigarOPNumber]);
         cigarOpLen = bam_cigar_oplen(CIGAR[cigarOPNumber]);
         if(cigarOPType == 3) {
             // Matching bases, copy the # of matching bases from reference seq
             memcpy(temp_ref_seq, seq_start, cigarOpLen*sizeof(char));
-            // printf("MATCHED: %s\n", temp_ref_seq);
             temp_ref_seq += cigarOpLen;
             seq_start += cigarOpLen;
         } else if(cigarOPType == 2){
@@ -61,12 +96,19 @@ void construct_reference_sequence_from_cigar(bam1_t *b, char *seq_start, char *r
         }
         cigarOPNumber++;
     }
-    // Copy 4 more basepair from reference because we need at least 2bp padding on each end
-    // <2pb><Reference Sequence><2bp><\o>
-    for(int i = 0; i < 2*padding; i++) {
+    // Copy 2bp padding to the end of the reference sequence
+    // NOTE: this could still contain gotchas due to *seq_start and max_ref_seq_len are loaded before processRead
+    // method, although it has at least 10kb buffer.
+    if ((ref_seq_rel_start_offset + b->core.l_qseq) < max_ref_seq_len - 2){
+        for(int i = 0; i < 2; i++) {
+            temp_ref_seq[0] = seq_start[0];
+            seq_start++;
+            temp_ref_seq++;
+        }
+    } else if((ref_seq_rel_start_offset + b->core.l_qseq) == max_ref_seq_len - 2){
+        // Can only fit 1 basepair at the end of the reference sequence.
         temp_ref_seq[0] = seq_start[0];
         temp_ref_seq++;
-        seq_start++;
     }
 }
 
@@ -82,16 +124,18 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
     int unknown_direction;
     int base;
     int padding = 2;
-    // Reference sequence with at least 2bp padding 
-    // <2pb><Reference Sequence><2bp><\o>
-    int ref_seq_start_offset = mappedPosition - sequenceStart - padding;
+    // Reference sequence with at least 2bp padding at each end plus null terminator
+    // <2bp><Reference Sequence><2bp><\o>
     int32_t ref_seq_size = b->core.l_qseq + 2*padding + 1;
+    // Allocate space for the reference sequence
     char *ref_seq = calloc(ref_seq_size, sizeof(char));
     memset(ref_seq, 'N', ref_seq_size);
     ref_seq[ref_seq_size-1] = '\0';
-    // Construct a reference sequence from CIGAR string
+    // Done with allocation
+    int ref_seq_start_offset = mappedPosition - sequenceStart - padding;
     if (ref_seq_start_offset < 0) ref_seq_start_offset = 0;
-    construct_reference_sequence_from_cigar(b, (seq + ref_seq_start_offset), ref_seq, bam_get_cigar(b), padding);
+    // Construct a reference sequence from CIGAR string
+    construct_reference_sequence_from_cigar(b, (seq + ref_seq_start_offset), ref_seq, ref_seq_start_offset, mappedPosition, seqLen);
 
     while(readPosition < b->core.l_qseq) {
         if(readQual[readPosition] < config->minPhred) {
@@ -104,27 +148,7 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
         chh_direction = isCHH(ref_seq, readPosition + padding, ref_seq_size);
         unknown_direction = isUnknownC(ref_seq, readPosition + padding, ref_seq_size);
         base = bam_seqi(readSeq, readPosition);  // Filtering by quality goes here
-        if(unknown_direction){            
-            if(unknown_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
-                if(base == 2) { 
-                    // (*nmethyl)++; //C
-                    meth_call[readPosition] = 'U';
-                }
-                else if(base == 8){ 
-                    // (*nunmethyl)++; //T
-                    meth_call[readPosition] = 'u';
-                }
-            } else if(unknown_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
-                if(base == 4) {
-                    // (*nmethyl)++;  //G
-                    meth_call[readPosition] = 'U';
-                }
-                else if(base == 1){
-                    // (*nunmethyl)++; //A
-                    meth_call[readPosition] = 'u';
-                }
-            }
-        } else if(cpg_direction) {
+        if(cpg_direction) {
             if(cpg_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
                 if(base == 2) { 
                     (*nmethyl)++; //C
@@ -142,6 +166,26 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
                 else if(base == 1){
                     (*nunmethyl)++; //A
                     meth_call[readPosition] = 'z';
+                }
+            }
+        } else if(unknown_direction){            
+            if(unknown_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
+                if(base == 2) { 
+                    // (*nmethyl)++; //C
+                    meth_call[readPosition] = 'U';
+                }
+                else if(base == 8){ 
+                    // (*nunmethyl)++; //T
+                    meth_call[readPosition] = 'u';
+                }
+            } else if(unknown_direction == -1 && (strand & 1) == 0) { // G & OB/CTOB
+                if(base == 4) {
+                    // (*nmethyl)++;  //G
+                    meth_call[readPosition] = 'U';
+                }
+                else if(base == 1){
+                    // (*nunmethyl)++; //A
+                    meth_call[readPosition] = 'u';
                 }
             }
         } else if(chg_direction) {
