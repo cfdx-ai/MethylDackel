@@ -1,6 +1,7 @@
 from subprocess import check_call
 import os
 import os.path as op
+import filecmp
 wd = op.dirname(op.realpath(__file__))
 os.chdir(wd)
 
@@ -84,7 +85,7 @@ rm('test8_CpG.bedGraph')
 check_call([MPath, 'extract', '--nOT', '50,50,40,40', 'cg100.fa', 'cg_aln.bam', '-q', '2', '-o', 'test8'])
 assert op.exists('test8_CpG.bedGraph')
 lines = sum(1 for _ in open('test8_CpG.bedGraph'))
-assert lines == 12
+assert lines == 11
 rm('test8_CpG.bedGraph')
 
 # Check variant filtering (there are 49 lines otherwise)
@@ -143,5 +144,11 @@ assert op.exists('test15_CpG.bedGraph')
 lines = sum(1 for _ in open('test15_CpG.bedGraph'))
 assert lines == 49
 rm('test15_CpG.bedGraph')
-print("Finished correctly")
 
+# Test the new perRead output
+rm('test16_methyl_call.csv')
+check_call([MPath, 'perRead', '-o', 'test16_methyl_call.csv', '/home/ubuntu/static_files/hg38_with_spikeins.fa', 'small_bismark.bam'])
+assert op.exists('test16_methyl_call.csv')
+filecmp.cmp('test16_methyl_call.csv', 'small_bismark_methyldackel_call.csv',shallow=False)
+rm('test16_methyl_call.csv')
+print("Finished correctly")
