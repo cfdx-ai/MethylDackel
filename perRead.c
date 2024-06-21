@@ -90,8 +90,8 @@ void construct_reference_sequence_from_cigar(bam1_t *b, char *seq_start, char *r
         } else if(cigarOPType == 2){
             // Deletion, skip the # of bases in the reference seq
             seq_start += cigarOpLen;
-        } else if(cigarOPType == 1){
-            // Insertion, skip the # of bases in the read seq
+        } else {
+            // If insertion, soft clipping then skip the # of bases in the read seq
             temp_ref_seq += cigarOpLen;
         }
         cigarOPNumber++;
