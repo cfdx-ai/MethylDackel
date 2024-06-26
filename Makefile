@@ -36,3 +36,8 @@ clean:
 
 install: MethylDackel
 	install MethylDackel $(prefix)
+
+build_and_push:
+	docker build -t 611924477365.dkr.ecr.us-east-1.amazonaws.com/methyldackel:latest .
+	aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 611924477365.dkr.ecr.us-east-1.amazonaws.com
+	docker push 611924477365.dkr.ecr.us-east-1.amazonaws.com/methyldackel:latest
