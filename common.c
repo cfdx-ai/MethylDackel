@@ -83,7 +83,13 @@ inline int isCHH(char *seq, int pos, int seqlen) {
 
 inline int isUnknownC(char *seq, int pos, int seqlen) {
     if(pos >= seqlen) return 0;
-    if(*(seq+pos) == 'C' || *(seq+pos) == 'c' & *(seq+pos+1) == 'N') return 1;
+    if((*(seq+pos) == 'C') || (*(seq+pos) == 'c')){
+        // CN or CXN then it should be unknown
+        if ((*(seq+pos+1) == 'n') || (*(seq+pos+1) == 'N') || (*(seq+pos+2) == 'n') || (*(seq+pos+2) == 'N')) return 1;
+    } else if((*(seq+pos) == 'G' || *(seq+pos) == 'g')) {
+        // NG or NXG then it should be unknown
+        if ((*(seq+pos-1) == 'n') || (*(seq+pos-1) == 'N') || (*(seq+pos-2) == 'n') || (*(seq+pos-2) == 'N')) return -1;
+    } 
     return 0;
 }
 
