@@ -95,9 +95,13 @@ inline int isUnknownC(char *seq, int pos, int seqlen) {
 
 int getStrand(bam1_t *b) {
     char *XG = (char *) bam_aux_get(b, "XG");
+    char *YD = (char *) bam_aux_get(b, "YD");
     //Only bismark uses the XG tag like this. Some other aligners use it for other purposes...
     if(XG != NULL && *(XG+1) != 'C' && *(XG+1) != 'G') XG = NULL;
-    if(XG == NULL) { //Can't handle non-directional libraries!
+    // YD tag is being used by bwa-meth. Set to NULL if tag contains unexpected values that other aligners use.
+    if(YD != NULL && *(YD+1) != 'f' && *(YD+1) != 'r') YD = NULL;
+    
+    if(XG == NULL && YD == NULL) { //Can't handle non-directional libraries!
         if(b->core.flag & BAM_FPAIRED) {
             if((b->core.flag & 0x50) == 0x50) return 2; //Read1, reverse comp. == OB
             else if(b->core.flag & 0x40) return 1; //Read1, forward == OT
@@ -109,7 +113,7 @@ int getStrand(bam1_t *b) {
             return 1; //OT
         }
     } else {
-        if(*(XG+1) == 'C') { //OT or CTOT, due to C->T converted genome
+        if(((XG != NULL && *(XG+1) == 'C')) || (YD != NULL && (*(YD+1) == 'f'))) { //OT or CTOT, due to C->T converted genome
             if((b->core.flag & 0x51) == 0x41) return 1; //Read#1 forward == OT
             else if((b->core.flag & 0x51) == 0x51) return 3; //Read #1 reverse == CTOT
             else if((b->core.flag & 0x91) == 0x81) return 3; //Read #2 forward == CTOT
