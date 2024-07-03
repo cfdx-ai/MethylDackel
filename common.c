@@ -94,12 +94,17 @@ inline int isUnknownC(char *seq, int pos, int seqlen) {
 }
 
 int getStrand(bam1_t *b) {
-    char *XG = (char *) bam_aux_get(b, "XG");
-    char *YD = (char *) bam_aux_get(b, "YD");
+    char *XG = (char *) bam_aux_get(b, "XG"); // bismark
+    char *XB = (char *) bam_aux_get(b, "XB"); // gemBS
+    char *YD = (char *) bam_aux_get(b, "YD"); // bwa-meth
     //Only bismark uses the XG tag like this. Some other aligners use it for other purposes...
     if(XG != NULL && *(XG+1) != 'C' && *(XG+1) != 'G') XG = NULL;
     // YD tag is being used by bwa-meth. Set to NULL if tag contains unexpected values that other aligners use.
     if(YD != NULL && *(YD+1) != 'f' && *(YD+1) != 'r') YD = NULL;
+    // gemBS uses the XB tag to indicate the strand of the read
+    if(XB != NULL && *(XB+1) != 'C' && *(XB+1) != 'G') XB = NULL;
+    // If XG is not set, then use XB they have the same string
+    if(XG == NULL && XB != NULL) XG=XB;
     
     if(XG == NULL && YD == NULL) { //Can't handle non-directional libraries!
         if(b->core.flag & BAM_FPAIRED) {
