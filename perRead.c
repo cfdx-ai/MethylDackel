@@ -168,7 +168,7 @@ void processRead(Config *config, bam1_t *b, char *seq, char *meth_call, uint32_t
                     meth_call[readPosition] = 'z';
                 }
             }
-        } else if(unknown_direction){            
+        } else if(unknown_direction){
             if(unknown_direction == 1 && (strand & 1) == 1) { // C & OT/CTOT
                 if(base == 2) { 
                     // (*nmethyl)++; //C
